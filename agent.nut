@@ -1,5 +1,5 @@
-const FEED_ID = "1114859025";
-const API_KEY = "d9Ppy10jfGiQawgGPx4fASwmAuvXlZ1jCoz3ZqlUwiXFW18E";
+const FEED_ID = "YOURS";
+const API_KEY = "YOURS";
 lastFeedCSV <- "";
 lastFeedJSON <- {};
 
