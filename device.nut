@@ -14,8 +14,8 @@ systemMode <- "off";
 sampleTime <- 15000;
 pidDirection <- 0; //by default reverse direction; above setpoint error is increased
 kp <- -0.2;
-ki <- -0.2 * sampleTime;
-kd <- -0.2 / sampleTime;
+ki <- -0.002 * sampleTime;
+kd <- -0.002 / sampleTime;
 heatMin <- 50.0;
 coolMin <- 50.0;
 outMax <- 100;
@@ -263,6 +263,8 @@ function updateCool(newCoolState) {
             lastCoolOnTime = 0; //reset timer
             coolState = newCoolState;
             server.log("turning off cool");
+        } else {
+            server.log("in min cool on guard: coolOnTime=" + coolOnTime);
         }
     }
     //is it calling for on?
@@ -280,6 +282,8 @@ function updateCool(newCoolState) {
             server.log("turning on cool");
             activateFanRunOffDelay = false;
             updateFan(1);
+        } else {
+            server.log("in min cool off guard: coolOffTime="+coolOffTime);
         }
     }
     coolPin.write(coolState);
