@@ -2,29 +2,30 @@
 //temp input: dallas one-wire
 //outputs: pin5 -> Cool Relay, pin7 -> Heat Relay, pin8 -> Fan Relay
 
+fanOverride <- 0;
 setpoint <- 77.0;
 deadband <- 0.5;
+systemMode <- "off";
 minCoolOnTime <- 120000;
 minCoolOffTime <- 300000;
 minHeatOnTime <- 120000;
 minHeatOffTime <- 300000;
 minFanRunOffTime <- 120000;
 
-systemMode <- "off";
-sampleTime <- 15000;
+sampleTime <- 15;
 pidDirection <- 0; //by default reverse direction; above setpoint error is increased
 kp <- -0.2;
-ki <- -0.002 * sampleTime;
-kd <- -0.002 / sampleTime;
-heatMin <- 50.0;
-coolMin <- 50.0;
+ki <- -0.1 * sampleTime;
+kd <- -100 / sampleTime;
+heatMin <- 75.0;
+coolMin <- 75.0;
 outMax <- 100;
+outMin <- 0.0;
 
 lastTime <- hardware.millis();
 timeSinceLast <- 0;
 lastInput <- 0.0;
 errSum <- 0.0;
-outMin <- 0.0;
 coolState <- 0;
 coolMode <- 0;
 coolOnTime <- 0;
@@ -38,7 +39,6 @@ lastHeatOnTime <- 0;
 heatOffTime <- 0;
 lastHeatOffTime <- 0;
 fanState <- 0;
-fanOverride <- 0;
 activateFanRunOffDelay <- false;
 fanRunOffTime <- 0;
 lastFanRunOffTime <- 0;
@@ -149,7 +149,6 @@ function compute(input)
 {
     /*Compute all the working error variables*/
     local error = setpoint - input;
-    server.log("Setpoint is " + setpoint);
     server.log("PID error is " + error);
     
     errSum += (error * ki);
@@ -160,6 +159,7 @@ function compute(input)
     
     /*Compute PID Output*/
     local output = kp * error + errSum - kd * (input - lastInput);
+    server.log("PID calc = P("+kp*error+") + I("+errSum+") - D("+kd*(input - lastInput)+") = " + output);
     if( output > outMax ) output = outMax;
     else if( output < outMin ) output = outMin;
   
@@ -218,7 +218,7 @@ function updateFan(newFanState) {
         //calling to turn off
         //was there a runoff called for?
         if( activateFanRunOffDelay ) {
-            server.log("in fan run off delay");
+            server.log("in fan run off delay: fanRunOffTime="+fanRunOffTime);
             if( lastFanRunOffTime == 0 ) {
                 lastFanRunOffTime = hardware.millis();//start timer now
             }
@@ -250,13 +250,22 @@ function updateCool(newCoolState) {
     //ensure heat pins are off if we are in coolmode
     heatPin.write(0);
     
-    //is it calling for off?
-    if( !newCoolState ) {
-        //check min on timer
+    //update timers
+    if( coolState ) {
         if( lastCoolOnTime == 0 ) {
             lastCoolOnTime = hardware.millis();
         }
         coolOnTime += hardware.millis() - lastCoolOnTime;
+    } else {
+        if( lastCoolOffTime == 0 ) {
+            lastCoolOffTime = hardware.millis();
+        }
+        coolOffTime += hardware.millis() - lastCoolOffTime;
+    }
+    
+    //is it calling for off?
+    if( !newCoolState && coolState ) {
+        //check min on timer
         if( coolOnTime >= minCoolOnTime ) {
             //good to turn off
             coolOnTime = 0;
@@ -268,12 +277,8 @@ function updateCool(newCoolState) {
         }
     }
     //is it calling for on?
-    else if ( newCoolState ) {
+    else if ( newCoolState && !coolState ) {
         //check min off timer
-        if( lastCoolOffTime == 0 ) {
-            lastCoolOffTime = hardware.millis();//start timer
-        }
-        coolOffTime += hardware.millis() - lastCoolOffTime;
         if( coolOffTime >= minCoolOffTime ) {
             //good to turn on
             coolOffTime = 0;
@@ -368,6 +373,8 @@ function coolControl(output) {
             if ( output < coolMin && temp < (setpoint - deadband) ) {
                 updateCool(0);
                 coolMode++;
+            } else {
+                updateCool(1); //keep it running
             }
             break;
         case ControlStage.demandoff:
@@ -530,7 +537,7 @@ function main() {
     timeSinceLast += hardware.millis() - lastTime;
     
     //execute if sampleTime reached
-    if( timeSinceLast >= sampleTime ) {
+    if( timeSinceLast >= (sampleTime*1000) ) {
         timeSinceLast = 0;
         
         //read temp
