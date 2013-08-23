@@ -3,19 +3,19 @@
 //outputs: pin5 -> Cool Relay, pin7 -> Heat Relay, pin8 -> Fan Relay
 
 setpoint <- 77.0;
-deadband <- 0.2;
+deadband <- 0.5;
 minCoolOnTime <- 120000;
-minCoolOffTime <- 120000;
+minCoolOffTime <- 300000;
 minHeatOnTime <- 120000;
-minHeatOffTime <- 120000;
-minFanRunOffTime <- 30000;
+minHeatOffTime <- 300000;
+minFanRunOffTime <- 120000;
 
 systemMode <- "off";
 sampleTime <- 15000;
 pidDirection <- 0; //by default reverse direction; above setpoint error is increased
-kp <- -4.0;
+kp <- -0.2;
 ki <- -0.2 * sampleTime;
-kd <- -1.0 / sampleTime;
+kd <- -0.2 / sampleTime;
 heatMin <- 50.0;
 coolMin <- 50.0;
 outMax <- 100;
@@ -153,6 +153,7 @@ function compute(input)
     server.log("PID error is " + error);
     
     errSum += (error * ki);
+    server.log("errSum " + errSum);
     if( errSum > outMax ) errSum = outMax;
     else if( errSum < outMin ) errSum = outMin;
     server.log("PID accumed error is " + errSum);
@@ -252,11 +253,14 @@ function updateCool(newCoolState) {
     //is it calling for off?
     if( !newCoolState ) {
         //check min on timer
+        if( lastCoolOnTime == 0 ) {
+            lastCoolOnTime = hardware.millis();
+        }
+        coolOnTime += hardware.millis() - lastCoolOnTime;
         if( coolOnTime >= minCoolOnTime ) {
             //good to turn off
             coolOnTime = 0;
-            lastCoolOnTime = 0;
-            lastCoolOffTime = hardware.millis();
+            lastCoolOnTime = 0; //reset timer
             coolState = newCoolState;
             server.log("turning off cool");
         }
@@ -264,11 +268,14 @@ function updateCool(newCoolState) {
     //is it calling for on?
     else if ( newCoolState ) {
         //check min off timer
+        if( lastCoolOffTime == 0 ) {
+            lastCoolOffTime = hardware.millis();//start timer
+        }
+        coolOffTime += hardware.millis() - lastCoolOffTime;
         if( coolOffTime >= minCoolOffTime ) {
             //good to turn on
             coolOffTime = 0;
-            lastCoolOffTime = 0;
-            lastCoolOnTime = hardware.millis();
+            lastCoolOffTime = 0;//reset timer
             coolState = newCoolState;
             server.log("turning on cool");
             activateFanRunOffDelay = false;
@@ -287,11 +294,14 @@ function updateHeat(newHeatState) {
     //is it calling for off?
     if( !newHeatState ) {
         //check min on timer
+        if( lastHeatOnTime == 0 ) {
+            lastHeatOnTime = hardware.millis(); //start timer
+        }
+        heatOnTime += hardware.millis() - lastHeatOnTime;
         if( heatOnTime >= minHeatOnTime ) {
             //good to turn off
             heatOnTime = 0;
             lastHeatOnTime = 0;
-            lastHeatOffTime = hardware.millis();
             heatState = newHeatState;
             server.log("turning off heat");
         }
@@ -299,11 +309,14 @@ function updateHeat(newHeatState) {
     //is it calling for on?
     else if ( newHeatState ) {
         //check min off timer
+        if( lastHeatOffTime == 0 ) { 
+            lastHeatOffTime = hardware.millis(); //start timer
+        }
+        heatOffTime += hardware.millis() - lastHeatOffTime;
         if( heatOffTime >= minHeatOffTime ) {
             //good to turn on
             heatOffTime = 0;
             lastHeatOffTime = 0;
-            lastHeatOnTime = hardware.millis();
             heatState = newHeatState;
             updateFan(1);
             server.log("turning on heat");
@@ -312,29 +325,6 @@ function updateHeat(newHeatState) {
     heatPin.write(heatState);
     server.log("heat state is: " + heatState);
 }
-
-function updateTimers() {
-    switch( systemMode ) {
-        case "heat":
-            if( heatState == 1 ) {
-                heatOnTime += hardware.millis() - lastHeatOnTime;
-            } else {
-                heatOffTime += hardware.millis() - lastHeatOffTime;
-            }
-            break;
-        case "cool":
-            if( coolState == 1 ) {
-                coolOnTime += hardware.millis() - lastCoolOnTime;
-            } else {
-                coolOffTime += hardware.millis() - lastCoolOffTime;
-            }
-            break;
-        case "off":
-        default:
-            break;
-    }
-}
-
 
 function coolControl(output) {
     //this is a state machine
@@ -471,7 +461,6 @@ function hvacControl(temp) {
     local output = compute(temp);
     server.log("PID output is " + output);
 
-    updateTimers();
     switch( systemMode ) {
         case "cool":
             //we are in cool mode
